@@ -6,7 +6,7 @@
 # Desc: RTS-style Camera2D with edge scrolling, keyboard panning, middle-mouse drag,
 #       wheel zoom with min/max, world limits, and animated focus (pan + zoom).
 
-@icon("res://icon.svg") # optional
+@icon("res://addons/Camera_RTS_2D/icon.png")
 extends Camera2D
 class_name GF_RTS_Camera2D
 
