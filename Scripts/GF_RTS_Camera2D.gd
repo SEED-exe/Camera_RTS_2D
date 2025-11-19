@@ -68,13 +68,6 @@ var zoom_max: float = 3.0
 @export_range(0.01, 1.0, 0.01)
 var zoom_step: float = 0.1
 
-@export_group("World Limits")
-## If true, camera position is clamped inside [world_rect].
-@export var obey_world_limits: bool = false
-
-## The world rectangle to confine the camera within (top-left + size).
-@export var world_rect := Rect2(Vector2(-4096, -4096), Vector2(8192, 8192))
-
 @export_group("Mouse")
 ## If true, confines the mouse to the viewport/window.
 @export var mouse_confined_in_viewport: bool = false
@@ -121,15 +114,11 @@ func _get_configuration_warnings() -> PackedStringArray:
 		warns.append("zoom_min must be > 0.0.")
 	if zoom_min >= zoom_max:
 		warns.append("zoom_min must be strictly less than zoom_max.")
-	if obey_world_limits and world_rect.size == Vector2.ZERO:
-		warns.append("world_rect has zero size while obey_world_limits is enabled.")
 	return warns
 
 func _physics_process(delta: float) -> void:
 	## Applies smoothed panning based on input and clamps to world limits if enabled.
 	if _is_focusing and focus_disable_inputs:
-		if obey_world_limits:
-			_apply_world_limits()
 		return
 
 	var dir := _compute_input_dir()
@@ -141,8 +130,6 @@ func _physics_process(delta: float) -> void:
 	_velocity = _velocity.move_toward(target_velocity, acceleration * delta)
 	position += _velocity * delta
 
-	if obey_world_limits:
-		_apply_world_limits()
 
 func _compute_input_dir() -> Vector2:
 	## Computes the desired movement direction from keyboard and edge scrolling.
@@ -197,38 +184,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and _drag_active:
 		var mm := event as InputEventMouseMotion
 		position -= mm.relative * (drag_sensitivity / max(zoom.x, 0.001))
-		if obey_world_limits:
-			_apply_world_limits()
 
-func _apply_world_limits() -> void:
-	## Clamps camera position so the viewport stays inside [world_rect].
-	var vp_size := get_viewport().get_visible_rect().size
-	var half := (vp_size * 0.5) * zoom
-
-	var min_x := world_rect.position.x + half.x
-	var max_x := world_rect.position.x + world_rect.size.x - half.x
-	var min_y := world_rect.position.y + half.y
-	var max_y := world_rect.position.y + world_rect.size.y - half.y
-
-	# If the visible area is larger than world_rect along an axis, center on that axis.
-	if min_x > max_x:
-		position.x = (min_x + max_x) * 0.5
-	else:
-		position.x = clamp(position.x, min_x, max_x)
-
-	if min_y > max_y:
-		position.y = (min_y + max_y) * 0.5
-	else:
-		position.y = clamp(position.y, min_y, max_y)
-
-## Starts an animated focus (pan + zoom) toward a world position.
-## If [param target_zoom] <= 0, uses [member focus_default_zoom].
-## If [param duration] <= 0, uses [member focus_duration].
-## @param target_world_pos The world-space destination.
-## @param target_zoom Target zoom value (<= 0 to use default).
-## @param duration Duration in seconds (<= 0 to use default).
-## @example:
-##     $GF_RTS_Camera2D.focus_to(Vector2(1000, 600), 1.0, 0.4)
 func focus_to(target_world_pos: Vector2, target_zoom: float = -1.0, duration: float = -1.0) -> void:
 	var tz := target_zoom if target_zoom > 0.0 else focus_default_zoom
 	tz = clamp(tz, zoom_min, zoom_max)
@@ -236,9 +192,6 @@ func focus_to(target_world_pos: Vector2, target_zoom: float = -1.0, duration: fl
 	var dur := duration if duration > 0.0 else focus_duration
 
 	var final_pos := target_world_pos
-	if obey_world_limits:
-		final_pos = _clamp_position_for_zoom(target_world_pos, tz)
-
 	_kill_focus_tween_if_running()
 
 	_is_focusing = true
@@ -250,13 +203,8 @@ func focus_to(target_world_pos: Vector2, target_zoom: float = -1.0, duration: fl
 	_focus_tween.parallel().tween_property(self, "position", final_pos, dur)
 	_focus_tween.parallel().tween_property(self, "zoom", Vector2(tz, tz), dur)
 
-	if obey_world_limits:
-		_focus_tween.tween_callback(_apply_world_limits)
-
 	_focus_tween.finished.connect(func ():
 		_is_focusing = false
-		if obey_world_limits:
-			_apply_world_limits()
 		emit_signal("focus_finished")
 	)
 
@@ -280,27 +228,6 @@ func cancel_focus() -> void:
 func _kill_focus_tween_if_running() -> void:
 	if _focus_tween and _focus_tween.is_running():
 		_focus_tween.kill()
-
-func _clamp_position_for_zoom(pos: Vector2, z: float) -> Vector2:
-	## Returns a position clamped for a given zoom so the viewport remains inside [world_rect].
-	## @param pos Candidate world position.
-	## @param z Zoom value to evaluate against.
-	## @return The clamped world position.
-	if not obey_world_limits:
-		return pos
-
-	var vp_size := get_viewport().get_visible_rect().size
-	var half := (vp_size * 0.5) * Vector2(z, z)
-
-	var min_x := world_rect.position.x + half.x
-	var max_x := world_rect.position.x + world_rect.size.x - half.x
-	var min_y := world_rect.position.y + half.y
-	var max_y := world_rect.position.y + world_rect.size.y - half.y
-
-	var out := pos
-	out.x = (min_x + max_x) * 0.5 if min_x > max_x else clamp(out.x, min_x, max_x)
-	out.y = (min_y + max_y) * 0.5 if min_y > max_y else clamp(out.y, min_y, max_y)
-	return out
 
 func _input(event: InputEvent) -> void:
 	if _is_focusing and focus_disable_inputs:
@@ -339,6 +266,4 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and _drag_active:
 		var mm := event as InputEventMouseMotion
 		position -= mm.relative * (drag_sensitivity / max(zoom.x, 0.001))
-		if obey_world_limits:
-			_apply_world_limits()
 		get_viewport().set_input_as_handled()
