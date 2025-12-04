@@ -117,18 +117,33 @@ func _get_configuration_warnings() -> PackedStringArray:
 	return warns
 
 func _physics_process(delta: float) -> void:
-	## Applies smoothed panning based on input and clamps to world limits if enabled.
 	if _is_focusing and focus_disable_inputs:
 		return
 
 	var dir := _compute_input_dir()
 
-	# Scale perceived speed by zoom (higher zoom => slower movement).
 	var speed = base_speed / max(zoom.x, 0.001)
 	var target_velocity = dir * speed
 
 	_velocity = _velocity.move_toward(target_velocity, acceleration * delta)
 	position += _velocity * delta
+	
+	_apply_limits()
+
+func _apply_limits() -> void:
+	if limit_left == limit_right and limit_top == limit_bottom:
+		return  # no limits set
+
+	var vp_size = get_viewport_rect().size
+	var half_size = (vp_size * zoom) * 0.5
+
+	var min_x = limit_left + half_size.x
+	var max_x = limit_right - half_size.x
+	var min_y = limit_top + half_size.y
+	var max_y = limit_bottom - half_size.y
+
+	position.x = clamp(position.x, min_x, max_x)
+	position.y = clamp(position.y, min_y, max_y)
 
 
 func _compute_input_dir() -> Vector2:
@@ -237,7 +252,6 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 
-		# Zoom (même logique qu'avant)
 		if mb.pressed and mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			var z := clamp(zoom.x - zoom_step, zoom_min, zoom_max)
 			zoom = Vector2(z, z)
