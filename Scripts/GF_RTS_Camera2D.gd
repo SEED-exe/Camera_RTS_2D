@@ -1,120 +1,74 @@
 # Pack From: Game Forge Kit
 # File: GF_RTS_Camera2D.gd
-# Version: v1.2.0
+# Version: v1.2.1 (Fixed Zoom + Movement)
 # Author: Kode Game Studio
 # Godot: 4.x
-# Desc: RTS-style Camera2D with edge scrolling, keyboard panning, middle-mouse drag,
-#       wheel zoom with min/max, world limits, and animated focus (pan + zoom).
 
 @icon("res://addons/Camera_RTS_2D/icon.png")
 extends Camera2D
 class_name GF_RTS_Camera2D
 
-## A modular RTS-style Camera2D for top-down strategy games.[br]
-##
-## Features:[br]
-## - Keyboard and edge scrolling movement[br]
-## - Middle mouse drag to pan[br]
-## - Mouse wheel zoom (min/max/step)[br]
-## - Optional world limits (Rect2)[br]
-## - Animated focus to position or Node2D (pan + zoom)[br]
-## [br]
-## Designed for clarity inside the editor.
-
-
-## Emitted when an animated focus starts.
-## @param target_pos The world position the camera will focus to.
-## @param target_zoom The zoom value that will be targeted.
 signal focus_started(target_pos: Vector2, target_zoom: float)
-
-## Emitted when an animated focus ends.
 signal focus_finished()
 
 @export_group("Controls — Keyboard")
-## Enables keyboard panning using InputMap actions (ui_up/down/left/right).
 @export var use_keyboard: bool = true
-
-## Base panning speed in pixels per second at zoom 1.0.
 @export_range(50.0, 5000.0, 10.0, "or_greater")
 var base_speed: float = 900.0
-
-## Acceleration in pixels per second squared.
 @export_range(0.0, 20000.0, 10.0, "or_greater")
 var acceleration: float = 6000.0
 
 @export_group("Controls — Edge Scroll")
-## Enables edge scrolling when the mouse reaches screen borders.
 @export var use_edge_scroll: bool = true
-
-## Margin, in pixels, near viewport borders that triggers edge scrolling.
 @export_range(1, 128, 1, "suffix:px")
 var edge_margin_px: int = 16
 
 @export_group("Controls — Mouse Drag")
-## Multiplier applied to middle-mouse drag panning.
 @export_range(0.1, 5.0, 0.1)
 var drag_sensitivity: float = 1.0
 
 @export_group("Zoom")
-## Minimal zoom factor.
 @export_range(0.05, 10.0, 0.01)
 var zoom_min: float = 0.5
-
-## Maximal zoom factor.
 @export_range(0.05, 10.0, 0.01)
 var zoom_max: float = 3.0
-
-## Step applied on mouse wheel input.
 @export_range(0.01, 1.0, 0.01)
 var zoom_step: float = 0.1
 
 @export_group("Mouse")
-## If true, confines the mouse to the viewport/window.
 @export var mouse_confined_in_viewport: bool = false
 
-@export_group("Animated Focus (Pan + Zoom)")
-## Default zoom used by focus if [param target_zoom] is <= 0.
+@export_group("Animated Focus")
 @export_range(0.05, 10.0, 0.01)
 var focus_default_zoom: float = 0.85
-
-## Default duration used by focus if [param duration] is <= 0 (seconds).
 @export_range(0.05, 3.0, 0.01)
 var focus_duration: float = 0.35
-
-## If true, disables user inputs while focusing.
 @export var focus_disable_inputs: bool = true
-
-## Transition type used by the tween during focus.
 @export var focus_trans: Tween.TransitionType = Tween.TRANS_QUAD
-
-## Ease type used by the tween during focus.
 @export var focus_ease: Tween.EaseType = Tween.EASE_OUT
 
 # --- Internals ---
 var _velocity: Vector2 = Vector2.ZERO
-
 var _is_focusing := false
 var _focus_tween: Tween
-
 var _drag_active := false
-var _drag_button := -1 #  MMB= MOUSE_BUTTON_MIDDLE, RMB= MOUSE_BUTTON_RIGHT, LMB= MOUSE_BUTTON_LEFT
+var _drag_button := -1
 
 
 func _ready() -> void:
-	## Called when the node is added to the scene for the first time.
-	## Sets process mode to PAUSABLE so the camera may animate during pause if desired.
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	if mouse_confined_in_viewport:
 		Input.set_mouse_mode(Input.MOUSE_MODE_CONFINED)
 
+
 func _get_configuration_warnings() -> PackedStringArray:
-	## Provides editor-time warnings for invalid configuration.
 	var warns: PackedStringArray = []
 	if zoom_min <= 0.0:
 		warns.append("zoom_min must be > 0.0.")
 	if zoom_min >= zoom_max:
-		warns.append("zoom_min must be strictly less than zoom_max.")
+		warns.append("zoom_min must be < zoom_max.")
 	return warns
+
 
 func _physics_process(delta: float) -> void:
 	if _is_focusing and focus_disable_inputs:
@@ -122,20 +76,24 @@ func _physics_process(delta: float) -> void:
 
 	var dir := _compute_input_dir()
 
-	var speed = base_speed / max(zoom.x, 0.001)
-	var target_velocity = dir * speed
+	# Smooth RTS-style speed scaling (no freeze when zooming)
+	var zoom_factor := 1.0 + ((zoom.x - 1.0) * 0.35)
+	var speed := base_speed / zoom_factor
 
+	var target_velocity = dir * speed
 	_velocity = _velocity.move_toward(target_velocity, acceleration * delta)
+
 	position += _velocity * delta
-	
 	_apply_limits()
+
 
 func _apply_limits() -> void:
 	if limit_left == limit_right and limit_top == limit_bottom:
-		return  # no limits set
+		return
 
 	var vp_size = get_viewport_rect().size
-	var half_size = (vp_size * zoom) * 0.5
+
+	var half_size = (vp_size / zoom) * 0.5
 
 	var min_x = limit_left + half_size.x
 	var max_x = limit_right - half_size.x
@@ -147,8 +105,6 @@ func _apply_limits() -> void:
 
 
 func _compute_input_dir() -> Vector2:
-	## Computes the desired movement direction from keyboard and edge scrolling.
-	## @return The normalized movement vector (or zero).
 	var dir := Vector2.ZERO
 
 	if use_keyboard:
@@ -172,94 +128,30 @@ func _compute_input_dir() -> Vector2:
 
 	if dir.length() > 1.0:
 		dir = dir.normalized()
+
 	return dir
 
-func _unhandled_input(event: InputEvent) -> void:
-	## Handles mouse wheel zoom and middle-button dragging.
-	if _is_focusing and focus_disable_inputs:
-		return
 
-	if event is InputEventMouseButton and event.pressed:
-		var mb := event as InputEventMouseButton
-
-		# Wheel UP increases, DOWN decreases (kept from original logic).
-		if mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			var z := clamp(zoom.x - zoom_step, zoom_min, zoom_max)
-			zoom = Vector2(z, z)
-		elif mb.button_index == MOUSE_BUTTON_WHEEL_UP:
-			var z := clamp(zoom.x + zoom_step, zoom_min, zoom_max)
-			zoom = Vector2(z, z)
-
-		# Middle-mouse drag toggle.
-		if mb.button_index == MOUSE_BUTTON_MIDDLE:
-			_drag_active = mb.pressed
-			if _drag_active:
-				_velocity = Vector2.ZERO
-
-	if event is InputEventMouseMotion and _drag_active:
-		var mm := event as InputEventMouseMotion
-		position -= mm.relative * (drag_sensitivity / max(zoom.x, 0.001))
-
-func focus_to(target_world_pos: Vector2, target_zoom: float = -1.0, duration: float = -1.0) -> void:
-	var tz := target_zoom if target_zoom > 0.0 else focus_default_zoom
-	tz = clamp(tz, zoom_min, zoom_max)
-
-	var dur := duration if duration > 0.0 else focus_duration
-
-	var final_pos := target_world_pos
-	_kill_focus_tween_if_running()
-
-	_is_focusing = true
-	emit_signal("focus_started", final_pos, tz)
-	_velocity = Vector2.ZERO
-
-	_focus_tween = create_tween()
-	_focus_tween.set_trans(focus_trans).set_ease(focus_ease)
-	_focus_tween.parallel().tween_property(self, "position", final_pos, dur)
-	_focus_tween.parallel().tween_property(self, "zoom", Vector2(tz, tz), dur)
-
-	_focus_tween.finished.connect(func ():
-		_is_focusing = false
-		emit_signal("focus_finished")
-	)
-
-## Starts an animated focus toward a Node2D (uses its global_position).
-## @param node The node to focus (Node2D).
-## @param target_zoom Optional target zoom (<= 0 to use default).
-## @param duration Optional duration seconds (<= 0 to use default).
-## @example:
-##     $GF_RTS_Camera2D.focus_to_node($Target, 0.9, 0.35)
-func focus_to_node(node: Node, target_zoom: float = -1.0, duration: float = -1.0) -> void:
-	if node is Node2D:
-		focus_to((node as Node2D).global_position, target_zoom, duration)
-
-## Cancels a running focus tween (does not restore previous position/zoom).
-## @example:
-##     $GF_RTS_Camera2D.cancel_focus()
-func cancel_focus() -> void:
-	_kill_focus_tween_if_running()
-	_is_focusing = false
-
-func _kill_focus_tween_if_running() -> void:
-	if _focus_tween and _focus_tween.is_running():
-		_focus_tween.kill()
-
+# ---------------------------------------------------
+# INPUT — unified zoom + drag (no double zoom)
+# ---------------------------------------------------
 func _input(event: InputEvent) -> void:
 	if _is_focusing and focus_disable_inputs:
 		return
 
-	# -- Mouse button press/release
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 
-		if mb.pressed and mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			var z := clamp(zoom.x - zoom_step, zoom_min, zoom_max)
-			zoom = Vector2(z, z)
-		elif mb.pressed and mb.button_index == MOUSE_BUTTON_WHEEL_UP:
-			var z := clamp(zoom.x + zoom_step, zoom_min, zoom_max)
-			zoom = Vector2(z, z)
+		if mb.pressed:
+			if mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+				_set_zoom(zoom.x - zoom_step)
+				get_viewport().set_input_as_handled()
 
-		# Drag start: MMB or RMB or Alt+LMB
+			elif mb.button_index == MOUSE_BUTTON_WHEEL_UP:
+				_set_zoom(zoom.x + zoom_step)
+				get_viewport().set_input_as_handled()
+
+		# Drag start
 		if mb.pressed and (
 			mb.button_index == MOUSE_BUTTON_MIDDLE
 			or mb.button_index == MOUSE_BUTTON_RIGHT
@@ -270,14 +162,57 @@ func _input(event: InputEvent) -> void:
 			_velocity = Vector2.ZERO
 			get_viewport().set_input_as_handled()
 
-		# Drag end (release same button)
+		# Drag stop
 		if not mb.pressed and _drag_active and mb.button_index == _drag_button:
 			_drag_active = false
 			_drag_button = -1
 			get_viewport().set_input_as_handled()
 
-	# -- Mouse motion while dragging
+	# Drag motion
 	if event is InputEventMouseMotion and _drag_active:
 		var mm := event as InputEventMouseMotion
 		position -= mm.relative * (drag_sensitivity / max(zoom.x, 0.001))
 		get_viewport().set_input_as_handled()
+
+
+func _set_zoom(z: float) -> void:
+	z = clamp(z, zoom_min, zoom_max)
+	zoom = Vector2(z, z)
+
+
+# ---------------------------------------------------
+#   FOCUS SYSTEM
+# ---------------------------------------------------
+func focus_to(target_world_pos: Vector2, target_zoom: float = -1.0, duration: float = -1.0) -> void:
+	var tz := clamp(target_zoom if target_zoom > 0.0 else focus_default_zoom, zoom_min, zoom_max)
+	var dur := duration if duration > 0.0 else focus_duration
+
+	_kill_focus_tween_if_running()
+	_is_focusing = true
+	emit_signal("focus_started", target_world_pos, tz)
+	_velocity = Vector2.ZERO
+
+	_focus_tween = create_tween()
+	_focus_tween.set_trans(focus_trans).set_ease(focus_ease)
+	_focus_tween.parallel().tween_property(self, "position", target_world_pos, dur)
+	_focus_tween.parallel().tween_property(self, "zoom", Vector2(tz, tz), dur)
+
+	_focus_tween.finished.connect(func ():
+		_is_focusing = false
+		emit_signal("focus_finished")
+	)
+
+
+func focus_to_node(node: Node, target_zoom: float = -1.0, duration: float = -1.0) -> void:
+	if node is Node2D:
+		focus_to((node as Node2D).global_position, target_zoom, duration)
+
+
+func cancel_focus() -> void:
+	_kill_focus_tween_if_running()
+	_is_focusing = false
+
+
+func _kill_focus_tween_if_running() -> void:
+	if _focus_tween and _focus_tween.is_running():
+		_focus_tween.kill()
